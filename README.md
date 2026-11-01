@@ -46,7 +46,7 @@ Total do mês: R$ 1.340,20
 Pra escolher a categoria, o bot tenta nesta ordem:
 1. **O que você já ensinou** com `mudar`
 2. **Palavras-chave** (ifood → Alimentação, uber → Transporte...). Ficam em `src/categorias.js`, dá pra acrescentar as suas.
-3. **IA (Claude)**, só se você configurar a chave da API. Ele guarda a resposta, então cada gasto novo só passa pela IA uma vez.
+3. **IA (Gemini ou Claude)**, só se você configurar uma chave de API. Ele guarda a resposta, então cada gasto novo só passa pela IA uma vez.
 4. **Outros**, e ele te avisa como corrigir.
 
 ### Relatório mensal
@@ -63,57 +63,21 @@ Se o bot estiver desligado no dia 1º, ele manda o relatório assim que voltar.
 
 ---
 
-## Instalação num servidor (VPS)
+## Instalação no servidor
 
-Precisa de um servidor Linux ligado 24h. Opções: **Oracle Cloud Free Tier** (grátis), Hetzner, Contabo, Magalu Cloud, DigitalOcean (a partir de ~R$ 20/mês). A menor máquina já serve.
+**👉 Passo a passo completo: [TUTORIAL.md](TUTORIAL.md)**
 
-### 1. Instalar o Docker no servidor
-
-```bash
-curl -fsSL https://get.docker.com | sh
-```
-
-### 2. Baixar o bot
+Resumo: num servidor Ubuntu/Debian, cole um comando:
 
 ```bash
-git clone https://github.com/SEU_USUARIO/bot-gastos.git
-cd bot-gastos
-cp .env.example .env
-nano .env        # cole sua ANTHROPIC_API_KEY (opcional)
+curl -fsSL https://raw.githubusercontent.com/lucastrentiin/bot-gastos/main/instalar.sh | sudo bash
 ```
 
-### 3. Ligar e conectar o WhatsApp
+O script instala o Docker, baixa o bot, pergunta a chave da IA e o seu número, sobe **um único container** e mostra o código pra conectar o WhatsApp. Depois disso use o atalho `bot-gastos` (`logs`, `reiniciar`, `atualizar`, `config`, `backup`, `reconectar`).
 
-```bash
-docker compose up -d --build
-docker compose logs -f
-```
-
-Vai aparecer um **QR code** no terminal. No celular: **WhatsApp → ⋮ → Aparelhos conectados → Conectar aparelho** e escaneie.
-
-> Se o QR ficar deformado no terminal, coloque seu número em `WHATSAPP_NUMERO` no `.env` (ex: `5511999998888`), rode `docker compose up -d` de novo, e use **"Conectar com número de telefone"** no celular com o código de 8 letras que aparece no log.
-
-Quando aparecer `✅ Conectado`, aperte `Ctrl+C` pra sair dos logs (o bot continua rodando). Mande `ajuda` na conversa com você mesmo pra testar.
-
-### Comandos úteis
-
-```bash
-docker compose logs -f          # ver o que está acontecendo
-docker compose restart          # reiniciar
-git pull && docker compose up -d --build   # atualizar
-```
-
-### Backup
-
-Todos os dados ficam na pasta `dados/`:
-- `dados/gastos.db`: seus gastos (SQLite; abre no [DB Browser for SQLite](https://sqlitebrowser.org/) ou exporta pra Excel)
-- `dados/sessao-whatsapp/`: login do WhatsApp. **Não compartilhe essa pasta**, ela dá acesso à sua conta.
-
-Pra fazer backup é só copiar `dados/gastos.db`.
-
-### Desconectar
-
-No celular: **Aparelhos conectados → Bot de Gastos → Desconectar**. Pra conectar de novo, apague `dados/sessao-whatsapp/` e reinicie o bot.
+Os dados ficam em `/opt/bot-gastos/dados/`:
+- `gastos.db`: seus gastos (SQLite)
+- `sessao-whatsapp/`: login do WhatsApp. **Não compartilhe essa pasta**, ela dá acesso à sua conta.
 
 ---
 
@@ -131,4 +95,4 @@ npm test        # roda os testes
 ## Avisos
 
 - O bot usa o [Baileys](https://github.com/WhiskeySockets/Baileys), uma biblioteca **não oficial** do WhatsApp Web. Como ele só lê e responde a conversa com você mesmo, sem mandar nada pra ninguém, o risco de bloqueio é bem baixo, mas não é zero.
-- A IA só recebe a descrição e o valor do gasto ("paintball", R$ 80), nunca suas conversas.
+- A IA (Gemini ou Claude) só recebe a descrição e o valor do gasto ("paintball", R$ 80), nunca suas conversas.
