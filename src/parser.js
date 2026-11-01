@@ -118,6 +118,13 @@ export function lerGastos(texto, hoje = hojeISO()) {
 }
 
 /** Normaliza a descrição para servir de "chave" do que o bot aprendeu. */
+// Palavras que não mudam o sentido: "pix pro joão" = "pix para o joão" = "pix joão"
+const PALAVRAS_VAZIAS = new Set(['pro', 'pra', 'para', 'p', 'o', 'a', 'os', 'as', 'do', 'da', 'dos', 'das', 'de', 'no', 'na', 'ao', 'com', 'em']);
+
 export function chaveDescricao(descricao) {
-  return normalizar(descricao).replace(/[^a-z0-9 ]/g, '').trim();
+  return normalizar(descricao)
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(' ')
+    .filter((p) => p && !PALAVRAS_VAZIAS.has(p))
+    .join(' ');
 }
