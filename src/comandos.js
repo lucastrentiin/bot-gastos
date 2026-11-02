@@ -12,6 +12,7 @@ export const AJUDA = `🤖 *Bot de gastos*
 
 *Registrar gasto*
 • 📸 manda o *print ou PDF do comprovante* (Pix, cartão, nota)
+  ou *print das notificações/extrato do banco* (vários gastos de uma vez)
   com legenda opcional, ex: "bolo"
 • ou escreve: mercado 87,50 (um por linha, se quiser vários)
 • uber 23
@@ -265,8 +266,16 @@ function limparRecebedor(nome) {
     .slice(0, 60);
 }
 
+/** Aceita o formato novo ({ transacoes: [...] }) e o antigo (um comprovante só). */
+function listaDeTransacoes(lido) {
+  if (Array.isArray(lido?.transacoes)) return lido.transacoes;
+  if (lido?.eh_comprovante) return [lido];
+  return [];
+}
+
 /**
- * Registra um gasto a partir de um print/PDF de comprovante.
+ * Registra os gastos de um print/PDF: comprovante único ou print de notificações/extrato
+ * com várias compras. O que já estava anotado (prints que se sobrepõem) não é duplicado.
  * @param arquivo { buffer, mime, legenda }
  */
 export async function processarComprovante(repo, { buffer, mime, legenda = '' }, { hoje = hojeISO(), ler = lerComprovanteGemini, ia } = {}) {
@@ -276,55 +285,92 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
 
   let lido;
   try {
-    lido = await ler(buffer, mime, legenda.trim());
+    lido = await ler(buffer, mime, legenda.trim(), hoje);
   } catch (erro) {
     console.error('[comprovante] erro ao ler:', erro.message);
     return `🤖 ⚠️ Não consegui ler esse comprovante: ${motivoDoErro(erro)}\n\nEnquanto isso, dá pra escrever o gasto: *mercado 87,50*`;
   }
 
-  const valor = Math.round(Number(lido?.valor) * 100) / 100;
-  if (!lido?.eh_comprovante || !(valor > 0)) {
-    return '🤖 Não achei um valor de pagamento nesse arquivo. Se for um gasto, escreve: *descrição valor*, ex: *mercado 87,50*';
+  // limpa e valida cada transação
+  const itens = listaDeTransacoes(lido)
+    .map((t) => {
+      const valor = Math.round(Number(t?.valor) * 100) / 100;
+      const recebedor = limparRecebedor(t?.recebedor) || 'Comprovante';
+      let data = hoje;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t?.data || '') && t.data <= hoje && t.data >= somarDias(hoje, -400)) data = t.data;
+      const hora = /^\d{2}:\d{2}$/.test(t?.hora || '') ? t.hora : null;
+      const categoriaIA = NOMES_CATEGORIAS.includes(t?.categoria) ? t.categoria : null;
+      return { valor, recebedor, data, hora, categoriaIA };
+    })
+    .filter((t) => t.valor > 0);
+
+  if (itens.length === 0) {
+    return '🤖 Não achei nenhum pagamento nesse arquivo. Se for um gasto, escreve: *descrição valor*, ex: *mercado 87,50*';
   }
 
-  const recebedor = limparRecebedor(lido.recebedor) || 'Comprovante';
-  const legendaLimpa = legenda.trim().replace(/\s+/g, ' ').slice(0, 60);
-  const descricao = legendaLimpa ? `${legendaLimpa} (${recebedor})` : recebedor;
-
-  // data do comprovante, se for válida e não estiver no futuro nem muito antiga
-  let data = hoje;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(lido.data || '') && lido.data <= hoje && lido.data >= somarDias(hoje, -400)) {
-    data = lido.data;
+  // Quantos de cada já estão no banco? (foto antes de inserir, para não contar os desta mesma imagem)
+  const chaveDe = (t) => `${t.data}|${t.hora ?? ''}|${t.valor}|${normalizar(t.recebedor)}`;
+  const jaNoBanco = new Map();
+  for (const t of itens) {
+    const k = chaveDe(t);
+    if (jaNoBanco.has(k)) continue;
+    const quantos = repo
+      .gastosDoPeriodo(t.data, t.data)
+      .filter(
+        (g) =>
+          g.valor === t.valor &&
+          normalizar(g.descricao).includes(normalizar(t.recebedor)) &&
+          (!t.hora || !g.hora || g.hora === t.hora),
+      ).length;
+    jaNoBanco.set(k, quantos);
   }
 
-  // categoria: o que você ensinou > palavras-chave (legenda) > o que a IA viu no comprovante
-  const daIA = NOMES_CATEGORIAS.includes(lido.categoria) ? lido.categoria : null;
-  const { categoria, origem } = await classificar(repo, descricao, valor, { ia: ia ?? (async () => daIA) });
+  const legendaLimpa = itens.length === 1 ? legenda.trim().replace(/\s+/g, ' ').slice(0, 60) : '';
+  const salvos = [];
+  const pulados = [];
+  for (const t of itens) {
+    const k = chaveDe(t);
+    if (jaNoBanco.get(k) > 0) {
+      // este já estava anotado (veio de outro print ou foi mandado de novo)
+      jaNoBanco.set(k, jaNoBanco.get(k) - 1);
+      pulados.push(t);
+      continue;
+    }
+    const descricao = legendaLimpa ? `${legendaLimpa} (${t.recebedor})` : t.recebedor;
+    // categoria: o que você ensinou > palavras-chave > o que a IA viu no print
+    const { categoria, origem } = await classificar(repo, descricao, t.valor, { ia: ia ?? (async () => t.categoriaIA) });
+    const salvo = repo.inserirGasto({ data: t.data, hora: t.hora, valor: t.valor, descricao, categoria, origem });
+    salvos.push(salvo);
+    // legenda resolveu a categoria? ensina o recebedor para o próximo Pix sem legenda
+    if (legendaLimpa && categoria !== 'Outros' && t.recebedor !== 'Comprovante') {
+      const chaveRecebedor = chaveDescricao(t.recebedor);
+      if (chaveRecebedor) repo.aprender(chaveRecebedor, categoria);
+    }
+  }
 
-  // mesmo valor, mesma data e mesmo recebedor = provavelmente mandou o mesmo print duas vezes
-  const repetido = repo
-    .gastosDoPeriodo(data, data)
-    .find((g) => g.valor === valor && normalizar(g.descricao).includes(normalizar(recebedor)));
+  const linha = (g) => `${emoji(g.categoria)} ${g.descricao}: *${brl(g.valor)}* → ${g.categoria}${g.data === hoje ? '' : ` (${diaMes(g.data)})`} · #${g.id}`;
+  const resposta = [];
+  if (salvos.length === 0) {
+    resposta.push(`🤖 Nada novo nesse ${itens.length === 1 ? 'comprovante' : 'print'}: ${itens.length === 1 ? 'esse gasto já estava anotado' : `os ${itens.length} gastos já estavam anotados`}.`);
+    resposta.push('Se era outra compra igual, escreve ela: *descrição valor*.');
+    return resposta.join('\n');
+  }
+  resposta.push(salvos.length === 1 && itens.length === 1 ? '🤖 ✅ Comprovante anotado' : `🤖 ✅ ${salvos.length} ${salvos.length === 1 ? 'gasto anotado' : 'gastos anotados'} do print`);
+  resposta.push(...salvos.map(linha));
 
-  const salvo = repo.inserirGasto({ data, valor, descricao, categoria, origem });
-  // Legenda resolveu a categoria? Ensina o recebedor, para o próximo Pix sem legenda já cair certo
-  if (legendaLimpa && categoria !== 'Outros' && recebedor !== 'Comprovante') {
-    const chaveRecebedor = chaveDescricao(recebedor);
-    if (chaveRecebedor) repo.aprender(chaveRecebedor, categoria);
+  if (pulados.length) {
+    resposta.push('', `↩️ ${pulados.length} já ${pulados.length === 1 ? 'estava anotado' : 'estavam anotados'} (apareceu em outro print), não dupliquei.`);
   }
-  const quando = data === hoje ? '' : ` (${diaMes(data)})`;
-  const resposta = [
-    '🤖 ✅ Comprovante anotado',
-    `${emoji(categoria)} ${descricao}: *${brl(valor)}* → ${categoria}${quando} · #${salvo.id}`,
-  ];
-  if (repetido) {
-    resposta.push('', `⚠️ Parece repetido: já tinha o #${repetido.id} igual. Se foi engano, manda *apagar ${salvo.id}*.`);
+  const semCategoria = salvos.filter((g) => g.origem === 'padrao');
+  if (semCategoria.length) {
+    const lista = semCategoria.map((g) => `#${g.id} ${g.descricao}`).join(', ');
+    resposta.push(
+      '',
+      `Não sei a categoria de: ${lista}. Corrige com *mudar ${semCategoria[0].id} lazer* (ou outra) que da próxima vez eu acerto.`,
+    );
   }
-  if (origem === 'padrao') {
-    resposta.push('', `Não sei a categoria de "${recebedor}". Corrige com *mudar ${salvo.id} lazer* (ou outra) que da próxima vez eu acerto. Dica: mande o print com uma legenda, ex: "bolo".`);
-  }
-  const aviso = avisoOrcamento(repo, salvo, hoje);
-  if (aviso) resposta.push('', aviso);
+  const avisos = [...new Set(salvos.map((g) => avisoOrcamento(repo, g, hoje)).filter(Boolean))];
+  if (avisos.length) resposta.push('', ...avisos);
   const totalMes = repo.gastosDoMes(mesDe(hoje)).reduce((t, x) => t + x.valor, 0);
   resposta.push('', `Total do mês: ${brl(totalMes)}`);
   return resposta.join('\n');

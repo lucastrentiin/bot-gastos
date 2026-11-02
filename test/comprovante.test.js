@@ -48,11 +48,12 @@ test('legenda ajuda a categorizar e entra na descrição', async () => {
   assert.match(r, /bolo \(Maria Souza\).*Alimentação/);
 });
 
-test('mesmo comprovante duas vezes avisa', async () => {
+test('mesmo comprovante duas vezes não duplica', async () => {
   const repo = abrirBanco(':memory:');
   const lido = { eh_comprovante: true, valor: 25, recebedor: 'Posto Shell', data: '2026-11-10', categoria: 'Transporte' };
   await enviar(repo, lido);
-  assert.match(await enviar(repo, lido), /Parece repetido.*#1.*apagar 2/s);
+  assert.match(await enviar(repo, lido), /Nada novo.*já estava anotado/s);
+  assert.equal(repo.ultimosGastos().length, 1);
 });
 
 test('data no futuro ou absurda vira hoje; CPF some do nome', async () => {
@@ -65,7 +66,7 @@ test('data no futuro ou absurda vira hoje; CPF some do nome', async () => {
 
 test('não é comprovante / sem valor', async () => {
   const repo = abrirBanco(':memory:');
-  assert.match(await enviar(repo, { eh_comprovante: false, valor: 0, recebedor: '', data: '', categoria: 'Outros' }), /Não achei um valor/);
+  assert.match(await enviar(repo, { eh_comprovante: false, valor: 0, recebedor: '', data: '', categoria: 'Outros' }), /Não achei nenhum pagamento/);
   assert.equal(repo.ultimosGastos().length, 0);
 });
 
@@ -88,11 +89,11 @@ test('pedido ao Gemini leva a imagem e pede JSON', async () => {
   let corpo;
   globalThis.fetch = async (url, opts) => {
     corpo = JSON.parse(opts.body);
-    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"eh_comprovante":true,"valor":12.5,"recebedor":"X","data":"","categoria":"Outros"}' }] } }] }));
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"transacoes":[{"valor":12.5,"recebedor":"X","data":"","hora":"","categoria":"Outros"}]}' }] } }] }));
   };
   try {
     const r = await lerComprovanteGemini(Buffer.from('abc'), 'application/pdf', 'bolo');
-    assert.equal(r.valor, 12.5);
+    assert.equal(r.transacoes[0].valor, 12.5);
     assert.equal(corpo.contents[0].parts[0].inlineData.mimeType, 'application/pdf');
     assert.equal(corpo.contents[0].parts[0].inlineData.data, Buffer.from('abc').toString('base64'));
     assert.match(corpo.contents[0].parts[1].text, /bolo/);
@@ -128,5 +129,90 @@ test('"mudar" em comprovante com legenda também ensina o recebedor', async () =
   await enviar(repo, joao, 'aula de violao'); // legenda sem palavra-chave conhecida -> Outros
   const { processarMensagem } = await import('../src/comandos.js');
   await processarMensagem(repo, 'mudar 1 educacao', { hoje: HOJE, ia: async () => null });
-  assert.match(await enviar(repo, { ...joao, valor: 50 }), /Joao Pereira: .*Educação/);
+  assert.match(await enviar(repo, { ...joao, valor: 45 }), /Joao Pereira: .*Educação/);
+});
+
+
+// Os 4 prints da tela de notificações do Itaú que o Lucas mandou (02/11/2026), já como o Gemini devolve
+const tx = (valor, recebedor, data, hora, categoria) => ({ valor, recebedor, data, hora, categoria });
+const PRINTS = [
+  { transacoes: [
+    tx(23.64, '99Food', '2026-11-01', '23:00', 'Alimentação'),
+    tx(115, 'Milena', '2026-11-01', '19:13', 'Outros'),
+    tx(68.57, '99Food', '2026-10-31', '20:09', 'Alimentação'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+  ] },
+  { transacoes: [
+    tx(115, 'Milena', '2026-11-01', '19:13', 'Outros'),
+    tx(68.57, '99Food', '2026-10-31', '20:09', 'Alimentação'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+  ] },
+  { transacoes: [
+    tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+    tx(10.98, '99Food', '2026-10-30', '12:22', 'Alimentação'),
+    tx(257.25, 'Policia Federal/MJ', '2026-10-29', '08:46', 'Contas'),
+  ] },
+  { transacoes: [
+    tx(257.25, 'Policia Federal/MJ', '2026-10-29', '08:46', 'Contas'),
+    tx(120.37, 'Anthropic', '2026-10-24', '18:37', 'Assinaturas'),
+  ] },
+];
+
+test('prints de notificações que se sobrepõem: anota tudo uma vez só', async () => {
+  const repo = abrirBanco(':memory:');
+  const hoje = '2026-11-02';
+  const mandar = (lido) => processarComprovante(repo, arquivo, { hoje, ler: async () => lido });
+
+  const r1 = await mandar(PRINTS[0]);
+  assert.match(r1, /5 gastos anotados do print/);
+  assert.match(r1, /Não sei a categoria de: #2 Milena/);
+
+  const r2 = await mandar(PRINTS[1]);
+  assert.match(r2, /2 gastos anotados/); // só os 2 boletos a mais
+  assert.match(r2, /4 já estavam anotados/);
+
+  const r3 = await mandar(PRINTS[2]);
+  assert.match(r3, /2 gastos anotados/); // 99Food 10,98 e Polícia Federal
+
+  const r4 = await mandar(PRINTS[3]);
+  assert.match(r4, /Anthropic: \*R\$\s?120,37\* → Assinaturas \(24\/10\)/);
+
+  const todos = repo.ultimosGastos(50);
+  assert.equal(todos.length, 10);
+  const soma = Math.round(todos.reduce((t, g) => t + g.valor, 0) * 100) / 100;
+  assert.equal(soma, 1220.57);
+  assert.equal(todos.filter((g) => g.descricao === 'Municipio De Chapeco').length, 4);
+  assert.ok(todos.every((g) => g.hora));
+
+  // mandar o mesmo print de novo não muda nada
+  assert.match(await mandar(PRINTS[0]), /Nada novo nesse print: os 5 gastos já estavam anotados/);
+});
+
+test('print sem nenhum pagamento (só avisos/propaganda)', async () => {
+  const repo = abrirBanco(':memory:');
+  const r = await processarComprovante(repo, arquivo, { hoje: HOJE, ler: async () => ({ transacoes: [] }) });
+  assert.match(r, /Não achei nenhum pagamento/);
+});
+
+test('prompt manda a data de hoje para o Gemini descobrir o ano', async () => {
+  process.env.GEMINI_API_KEY = 'teste';
+  const original = globalThis.fetch;
+  let corpo;
+  globalThis.fetch = async (url, opts) => {
+    corpo = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"transacoes":[]}' }] } }] }));
+  };
+  try {
+    await lerComprovanteGemini(Buffer.from('x'), 'image/png', '', '2026-11-02');
+    const prompt = corpo.contents[0].parts[1].text;
+    assert.match(prompt, /Hoje é 2026-11-02/);
+    assert.match(prompt, /NÃO liste/);
+    assert.equal(corpo.generationConfig.responseSchema.properties.transacoes.type, 'ARRAY');
+  } finally {
+    globalThis.fetch = original;
+  }
 });

@@ -5,7 +5,7 @@ export const CATEGORIAS = {
   'Alimentação': {
     emoji: '🍔',
     palavras: [
-      'ifood', 'i food', 'rappi', 'lanche', 'lanchonete', 'restaurante', 'almoco', 'janta', 'jantar',
+      'ifood', 'i food', 'rappi', '99food', '99 food', 'keeta', 'lanche', 'lanchonete', 'restaurante', 'almoco', 'janta', 'jantar',
       'cafe', 'padaria', 'pizza', 'hamburguer', 'burger', 'mc donalds', 'mcdonalds', 'bk', 'burger king',
       'subway', 'sushi', 'acai', 'sorvete', 'pastel', 'salgado', 'coxinha', 'marmita', 'quentinha',
       'bar', 'cerveja', 'chopp', 'refrigerante', 'refri', 'doce', 'bolo', 'churrasco', 'espetinho',
@@ -70,7 +70,7 @@ export const CATEGORIAS = {
     emoji: '📺',
     palavras: [
       'netflix', 'spotify', 'amazon prime', 'prime video', 'disney', 'hbo', 'globoplay',
-      'youtube premium', 'deezer', 'icloud', 'google one', 'chatgpt', 'claude', 'assinatura',
+      'youtube premium', 'deezer', 'anthropic', 'openai', 'icloud', 'google one', 'chatgpt', 'claude', 'assinatura',
       'mensalidade app', 'paramount', 'crunchyroll', 'xbox game pass', 'game pass', 'kindle unlimited',
     ],
   },

@@ -37,13 +37,16 @@ export function abrirBanco(arquivo = process.env.DB_PATH || './dados/gastos.db')
       valor  TEXT
     );
   `);
+  // versão nova: hora do gasto (vem dos prints de notificação; ajuda a não duplicar)
+  const colunas = db.prepare('PRAGMA table_info(gastos)').all().map((c) => c.name);
+  if (!colunas.includes('hora')) db.exec('ALTER TABLE gastos ADD COLUMN hora TEXT');
   return criarRepositorio(db);
 }
 
 function criarRepositorio(db) {
   const q = {
     inserir: db.prepare(
-      'INSERT INTO gastos (data, valor, descricao, categoria, origem) VALUES (@data, @valor, @descricao, @categoria, @origem)',
+      'INSERT INTO gastos (data, hora, valor, descricao, categoria, origem) VALUES (@data, @hora, @valor, @descricao, @categoria, @origem)',
     ),
     porId: db.prepare('SELECT * FROM gastos WHERE id = ?'),
     ultimo: db.prepare('SELECT * FROM gastos ORDER BY id DESC LIMIT 1'),
@@ -76,7 +79,7 @@ function criarRepositorio(db) {
   return {
     db,
     inserirGasto(g) {
-      const info = q.inserir.run(g);
+      const info = q.inserir.run({ hora: null, ...g });
       return q.porId.get(info.lastInsertRowid);
     },
     gasto: (id) => q.porId.get(id),

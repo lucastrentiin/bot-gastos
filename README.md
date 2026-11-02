@@ -6,7 +6,7 @@ Você manda no WhatsApp o que gastou, ele categoriza, soma tudo e no dia 1º de 
 
 ## Como usar
 
-**📸 Comprovante:** mande o **print ou o PDF** do comprovante (Pix, cartão, maquininha, nota fiscal) na conversa com você mesmo. O Gemini lê o valor, quem recebeu e a data, e o bot categoriza. Você pode escrever uma legenda na foto, ex. "bolo", pra ajudar na categoria (útil em Pix pra pessoa física). Se mandar o mesmo comprovante duas vezes, ele avisa. *Precisa da chave do Gemini.*
+**📸 Comprovante:** mande o **print ou o PDF** do comprovante (Pix, cartão, maquininha, nota fiscal) na conversa com você mesmo. Também dá pra mandar **print da tela de notificações ou do extrato do banco**: ele anota todas as compras do print, ignora avisos/boletos a vencer/propaganda, e não duplica o que aparece em mais de um print. O Gemini lê o valor, quem recebeu e a data, e o bot categoriza. Você pode escrever uma legenda na foto, ex. "bolo", pra ajudar na categoria (útil em Pix pra pessoa física). Se mandar o mesmo comprovante duas vezes, ele avisa. *Precisa da chave do Gemini.*
 
 **✍️ Ou por texto:**
 
