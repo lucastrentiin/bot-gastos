@@ -6,6 +6,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   jidNormalizedUser,
   Browsers,
+  downloadMediaMessage,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
@@ -20,6 +21,21 @@ export function textoDaMensagem(message) {
   return m.conversation ?? m.extendedTextMessage?.text ?? null;
 }
 
+/**
+ * Se a mensagem for um print (imagem) ou PDF, devolve { mime, legenda }. Senão, null.
+ */
+export function midiaDaMensagem(message) {
+  if (!message) return null;
+  const m = message.ephemeralMessage?.message ?? message.viewOnceMessage?.message ?? message;
+  const img = m.imageMessage;
+  if (img) return { mime: img.mimetype || 'image/jpeg', legenda: img.caption || '' };
+  const doc = m.documentMessage ?? m.documentWithCaptionMessage?.message?.documentMessage;
+  if (doc && /^(application\/pdf|image\/)/.test(doc.mimetype || '')) {
+    return { mime: doc.mimetype, legenda: doc.caption || '' };
+  }
+  return null;
+}
+
 /** true se a mensagem foi escrita por você na conversa com você mesmo. */
 export function ehConversaComigo(key, user) {
   if (!key?.fromMe || !user) return false;
@@ -30,9 +46,10 @@ export function ehConversaComigo(key, user) {
 /**
  * Inicia a conexão.
  * @param aoReceber async (texto) => resposta | null
+ * @param aoReceberArquivo async ({ buffer, mime, legenda }) => resposta | null
  * @param aoConectar (enviar) => void — chamado a cada conexão; enviar(texto) manda para você mesmo
  */
-export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
+export async function iniciarWhatsApp({ aoReceber, aoReceberArquivo, aoConectar }) {
   const { state, saveCreds } = await useMultiFileAuthState(PASTA_SESSAO);
   const logger = pino({ level: process.env.LOG_BAILEYS || 'warn' });
 
@@ -104,11 +121,11 @@ export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
         // Desconectado pelo celular (ou login pela metade): apaga a sessão e gera um código/QR novo
         console.error('❌ O WhatsApp desconectou este aparelho. Gerando um novo código/QR para conectar de novo...');
         fs.rmSync(PASTA_SESSAO, { recursive: true, force: true });
-        setTimeout(() => iniciarWhatsApp({ aoReceber, aoConectar }).catch(console.error), 5000);
+        setTimeout(() => iniciarWhatsApp({ aoReceber, aoReceberArquivo, aoConectar }).catch(console.error), 5000);
         return;
       }
       console.log(`Conexão caiu (${status ?? 'sem código'}). Reconectando em 5s...`);
-      setTimeout(() => iniciarWhatsApp({ aoReceber, aoConectar }).catch(console.error), 5000);
+      setTimeout(() => iniciarWhatsApp({ aoReceber, aoReceberArquivo, aoConectar }).catch(console.error), 5000);
     }
   });
 
@@ -118,10 +135,18 @@ export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
       try {
         if (enviadasPeloBot.has(msg.key.id)) continue;
         if (!ehConversaComigo(msg.key, sock.user)) continue;
-        const texto = textoDaMensagem(msg.message);
-        if (!texto || texto.startsWith('🤖')) continue; // respostas do bot começam com 🤖
-
-        const resposta = await aoReceber(texto);
+        let resposta;
+        const midia = midiaDaMensagem(msg.message);
+        if (midia && aoReceberArquivo) {
+          // print ou PDF de comprovante
+          await sock.sendMessage(msg.key.remoteJid, { react: { text: '👀', key: msg.key } }).catch(() => {});
+          const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
+          resposta = await aoReceberArquivo({ buffer, ...midia });
+        } else {
+          const texto = textoDaMensagem(msg.message);
+          if (!texto || texto.startsWith('🤖')) continue; // respostas do bot começam com 🤖
+          resposta = await aoReceber(texto);
+        }
         if (resposta) await enviar(msg.key.remoteJid, resposta);
       } catch (erro) {
         console.error('Erro ao processar mensagem:', erro);

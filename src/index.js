@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import cron from 'node-cron';
 import { abrirBanco } from './db.js';
-import { processarMensagem } from './comandos.js';
+import { processarMensagem, processarComprovante } from './comandos.js';
 import { relatorioDoMes } from './relatorio.js';
 import { iniciarWhatsApp } from './whatsapp.js';
-import { iaDisponivel } from './ia.js';
+import { provedorIA } from './ia.js';
 import { TZ, hojeISO, mesDe, mesAnterior, nomeMes } from './util.js';
 
 const repo = abrirBanco();
@@ -30,6 +30,7 @@ cron.schedule(HORARIO, () => enviarRelatorioMensalSePreciso().catch(console.erro
 
 await iniciarWhatsApp({
   aoReceber: (texto) => processarMensagem(repo, texto),
+  aoReceberArquivo: (arquivo) => processarComprovante(repo, arquivo),
   aoConectar: (enviar) => {
     enviarParaMim = enviar;
     // Se o bot estava desligado no dia 1º, manda o relatório atrasado assim que conectar
@@ -43,4 +44,7 @@ await iniciarWhatsApp({
   },
 });
 
-console.log(`🤖 Bot de gastos rodando. IA para categorias: ${iaDisponivel() ? 'ligada' : 'desligada (sem ANTHROPIC_API_KEY)'}.`);
+const ia = provedorIA();
+console.log(
+  `🤖 Bot de gastos rodando. IA: ${ia ?? 'desligada'}. Leitura de comprovantes: ${process.env.GEMINI_API_KEY ? 'ligada' : 'desligada (precisa de GEMINI_API_KEY)'}.`,
+);

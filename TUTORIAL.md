@@ -6,7 +6,7 @@ Tempo total: uns **15 minutos**, a maior parte esperando. No servidor você só 
 
 ## Passo 1: Pegar a chave grátis do Gemini (2 min, opcional)
 
-A chave serve pra IA categorizar gastos que o bot não conhece ("paintball", "lojinha da esquina"). Sem ela o bot funciona do mesmo jeito, mas esses vão pra "Outros" e você corrige com `mudar`.
+A chave é o que permite o bot **ler os prints/PDFs de comprovante** e categorizar gastos que ele não conhece. Sem ela, só funciona digitando os gastos.
 
 1. Entre em **https://aistudio.google.com/apikey** com sua conta Google
 2. Clique em **Create API key** (Criar chave de API)
@@ -88,6 +88,8 @@ mercado 50
 ```
 
 Se o bot responder com 🤖, está tudo funcionando. 🎉
+
+Agora teste com um **print de comprovante** (Pix, cartão, nota): mande a imagem ou o PDF na mesma conversa. O bot reage com 👀 enquanto lê e responde com valor, recebedor e categoria.
 
 ---
 

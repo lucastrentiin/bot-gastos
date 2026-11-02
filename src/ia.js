@@ -3,6 +3,7 @@
 // configuradas, usa o Gemini. Sem nenhuma, o bot funciona só com palavras-chave.
 import Anthropic from '@anthropic-ai/sdk';
 import { NOMES_CATEGORIAS } from './categorias.js';
+import { chamarGemini } from './gemini.js';
 
 const INSTRUCOES =
   'Você classifica gastos pessoais de um brasileiro em categorias de orçamento. ' +
@@ -28,13 +29,8 @@ function validar(texto) {
 
 // ---------- Gemini ----------
 async function comGemini(descricao, valor) {
-  const modelo = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
-  const resposta = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
-    signal: AbortSignal.timeout(30_000),
-    body: JSON.stringify({
+  const texto = await chamarGemini(
+    {
       systemInstruction: { parts: [{ text: INSTRUCOES }] },
       contents: [{ role: 'user', parts: [{ text: `Gasto: "${descricao}" — R$ ${valor.toFixed(2)}` }] }],
       generationConfig: {
@@ -46,17 +42,9 @@ async function comGemini(descricao, valor) {
           required: ['categoria'],
         },
       },
-    }),
-  });
-  if (!resposta.ok) {
-    const corpo = await resposta.text();
-    if (resposta.status === 400 || resposta.status === 403) {
-      throw new Error(`Gemini recusou a chave/pedido (${resposta.status}): ${corpo.slice(0, 200)}`);
-    }
-    throw new Error(`Gemini respondeu ${resposta.status}: ${corpo.slice(0, 200)}`);
-  }
-  const json = await resposta.json();
-  const texto = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('');
+    },
+    { timeout: 30_000 },
+  );
   return validar(texto);
 }
 

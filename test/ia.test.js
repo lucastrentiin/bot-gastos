@@ -37,3 +37,16 @@ test('Gemini: categoria inventada ou erro HTTP viram null', async () => {
   globalThis.fetch = async () => new Response('{"error":"bad key"}', { status: 400 });
   assert.equal(await categorizarComIA('x', 1), null);
 });
+
+test('Gemini: se o modelo não existe (404), tenta o próximo', async () => {
+  process.env.GEMINI_API_KEY = 'teste';
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    if (urls.length === 1) return new Response('{"error":"not found"}', { status: 404 });
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"categoria":"Pets"}' }] } }] }));
+  };
+  assert.equal(await categorizarComIA('ração', 80), 'Pets');
+  assert.equal(urls.length, 2);
+  assert.notEqual(urls[0], urls[1]);
+});
