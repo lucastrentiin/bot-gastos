@@ -38,25 +38,33 @@ else
 fi
 cd "$PASTA"
 
-# 3. Configuração (só na primeira vez)
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo
-  verde "==> Configuração"
-  echo "Chave de IA para categorizar gastos desconhecidos (opcional, pode pular com Enter)."
-  echo "Gemini grátis em: https://aistudio.google.com/apikey"
-  perguntar "Cole a chave do Gemini (ou Enter para pular): " CHAVE
-  if [ -n "$CHAVE" ]; then
-    sed -i "s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=$CHAVE|" .env
+# Login do WhatsApp concluído? ("account" só existe depois de parear de verdade)
+conectado() { grep -q '"account"' dados/sessao-whatsapp/creds.json 2>/dev/null; }
+valor_env() { grep -E "^$1=" .env | head -1 | cut -d= -f2-; }
+gravar_env() {
+  if grep -qE "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi
+}
+
+# 3. Configuração: pergunta o que estiver faltando (enquanto não estiver conectado)
+[ -f .env ] || cp .env.example .env
+chmod 600 .env
+if ! conectado; then
+  if [ -z "$(valor_env GEMINI_API_KEY)" ] && [ -z "$(valor_env ANTHROPIC_API_KEY)" ]; then
+    echo
+    verde "==> Chave de IA (opcional)"
+    echo "Serve para categorizar gastos que o bot não conhece. Gemini grátis em: https://aistudio.google.com/apikey"
+    perguntar "Cole a chave do Gemini (ou Enter para pular): " CHAVE
+    CHAVE="$(printf '%s' "$CHAVE" | tr -d '[:space:]')"
+    [ -n "$CHAVE" ] && gravar_env GEMINI_API_KEY "$CHAVE"
   fi
-  echo
-  echo "Seu número de WhatsApp, para conectar com código (mais fácil que QR code pelo terminal)."
-  perguntar "Número com DDI e DDD, só dígitos, ex 5511999998888 (Enter = usar QR code): " NUMERO
-  NUMERO="$(printf '%s' "$NUMERO" | tr -cd '0-9')"
-  if [ -n "$NUMERO" ]; then
-    sed -i "s|^WHATSAPP_NUMERO=.*|WHATSAPP_NUMERO=$NUMERO|" .env
+  if [ -z "$(valor_env WHATSAPP_NUMERO)" ]; then
+    echo
+    verde "==> Seu número de WhatsApp"
+    echo "Com ele o bot gera um código para digitar no celular (mais fácil que QR code)."
+    perguntar "Número com DDI e DDD, só dígitos, ex 5511999998888 (Enter = usar QR code): " NUMERO
+    NUMERO="$(printf '%s' "$NUMERO" | tr -cd '0-9')"
+    [ -n "$NUMERO" ] && gravar_env WHATSAPP_NUMERO "$NUMERO"
   fi
-  chmod 600 .env
 fi
 
 # 4. Atalho "bot-gastos" para o dia a dia
@@ -79,7 +87,7 @@ case "${1:-}" in
     DESTINO="${SUDO_USER:+$(getent passwd "$SUDO_USER" | cut -d: -f6)}"; DESTINO="${DESTINO:-$HOME}"
     f="$DESTINO/gastos-$(date +%F).db"
     mv dados/backup.db "$f" && chown "${SUDO_USER:-root}" "$f" && echo "Backup salvo em $f" ;;
-  reconectar) docker compose down && rm -rf dados/sessao-whatsapp && docker compose up -d && docker compose logs -f --tail=50 ;;
+  reconectar) docker compose down && rm -rf dados/sessao-whatsapp && docker compose up -d --force-recreate && echo "Aguarde o código/QR (uns 10 s). Ctrl+C para sair depois de conectar." && docker compose logs -f --tail=all ;;
   *) echo "Uso: bot-gastos {logs|reiniciar|parar|ligar|atualizar|config|backup|reconectar}" ;;
 esac
 EOF
@@ -89,29 +97,35 @@ chmod +x /usr/local/bin/bot-gastos
 # 5. Sobe o container
 verde "==> Montando e ligando o bot (a primeira vez leva uns 2 minutos)..."
 mkdir -p dados
-docker compose up -d --build
 
-if [ -f dados/sessao-whatsapp/creds.json ] && grep -q '"me":' dados/sessao-whatsapp/creds.json 2>/dev/null; then
+if conectado; then
+  docker compose up -d --build
   verde "✅ Bot atualizado e rodando. Já estava conectado ao WhatsApp."
   exit 0
 fi
 
+# Não conectado: começa do zero (apaga tentativa de login pela metade) e mostra o log desde o início
+docker compose down >/dev/null 2>&1 || true
+rm -rf dados/sessao-whatsapp
+docker compose up -d --build --force-recreate
+
 echo
 amarelo "==> Agora conecte o WhatsApp."
 amarelo "    No celular: WhatsApp > ⋮ (ou Configurações) > Aparelhos conectados > Conectar aparelho"
-if grep -q '^WHATSAPP_NUMERO=[0-9]' .env; then
-  amarelo "    Toque em \"Conectar com número de telefone\" e digite o código que vai aparecer abaixo."
+if [ -n "$(valor_env WHATSAPP_NUMERO)" ]; then
+  amarelo "    Toque em \"Conectar com número de telefone\" e digite o CÓDIGO que vai aparecer abaixo."
 else
   amarelo "    Escaneie o QR code que vai aparecer abaixo."
 fi
+amarelo "    (O código demora uns 10 segundos para aparecer.)"
 echo
 
-# Mostra os logs até conectar
-docker compose logs -f --tail=0 &
+# Mostra o log (desde o início do container) até conectar
+docker compose logs -f --tail=all --no-log-prefix 2>/dev/null | grep --line-buffered -v '^{' &
 LOGS_PID=$!
 trap 'kill $LOGS_PID 2>/dev/null || true' EXIT
 for _ in $(seq 1 600); do
-  if docker compose logs --tail=200 2>/dev/null | grep -q 'Conectado como'; then
+  if conectado && docker compose logs --tail=200 2>/dev/null | grep -q 'Conectado como'; then
     sleep 2
     kill $LOGS_PID 2>/dev/null || true
     echo
@@ -122,4 +136,4 @@ for _ in $(seq 1 600); do
   sleep 1
 done
 kill $LOGS_PID 2>/dev/null || true
-amarelo "Ainda não conectou. Para tentar de novo: bot-gastos reconectar"
+amarelo "Ainda não conectou (10 minutos). Para tentar de novo: bot-gastos reconectar"

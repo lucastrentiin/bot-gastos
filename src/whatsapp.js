@@ -9,6 +9,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import fs from 'node:fs';
 
 const PASTA_SESSAO = process.env.SESSAO_PATH || './dados/sessao-whatsapp';
 
@@ -93,10 +94,11 @@ export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
     if (connection === 'close') {
       const status = lastDisconnect?.error?.output?.statusCode;
       if (status === DisconnectReason.loggedOut) {
-        console.error(
-          '❌ O WhatsApp desconectou este aparelho. Apague a pasta da sessao (dados/sessao-whatsapp) e rode de novo para ler o QR.',
-        );
-        process.exit(1);
+        // Desconectado pelo celular (ou login pela metade): apaga a sessão e gera um código/QR novo
+        console.error('❌ O WhatsApp desconectou este aparelho. Gerando um novo código/QR para conectar de novo...');
+        fs.rmSync(PASTA_SESSAO, { recursive: true, force: true });
+        setTimeout(() => iniciarWhatsApp({ aoReceber, aoConectar }).catch(console.error), 5000);
+        return;
       }
       console.log(`Conexão caiu (${status ?? 'sem código'}). Reconectando em 5s...`);
       setTimeout(() => iniciarWhatsApp({ aoReceber, aoConectar }).catch(console.error), 5000);
