@@ -109,3 +109,21 @@ test('reconhece print, PDF e ignora outros arquivos', () => {
   assert.equal(midiaDaMensagem({ documentMessage: { mimetype: 'application/zip' } }), null);
   assert.equal(midiaDaMensagem({ conversation: 'oi' }), null);
 });
+
+test('legenda ensina o recebedor: próximo Pix sem legenda já reconhece', async () => {
+  const repo = abrirBanco(':memory:');
+  const maria = { eh_comprovante: true, valor: 40, recebedor: 'MARIA SOUZA', data: '', categoria: 'Outros' };
+  assert.match(await enviar(repo, maria, 'bolo'), /Alimentação/);
+  assert.match(await enviar(repo, { ...maria, valor: 35 }), /Maria Souza: \*R\$\s?35,00\* → Alimentação/);
+  // legenda diferente ainda manda: compra outra coisa da mesma pessoa
+  assert.match(await enviar(repo, { ...maria, valor: 20 }, 'farmácia'), /Saúde/);
+});
+
+test('"mudar" em comprovante com legenda também ensina o recebedor', async () => {
+  const repo = abrirBanco(':memory:');
+  const joao = { eh_comprovante: true, valor: 50, recebedor: 'JOAO PEREIRA', data: '', categoria: 'Outros' };
+  await enviar(repo, joao, 'aula de violao'); // legenda sem palavra-chave conhecida -> Outros
+  const { processarMensagem } = await import('../src/comandos.js');
+  await processarMensagem(repo, 'mudar 1 educacao', { hoje: HOJE, ia: async () => null });
+  assert.match(await enviar(repo, { ...joao, valor: 50 }), /Joao Pereira: .*Educação/);
+});

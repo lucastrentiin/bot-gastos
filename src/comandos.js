@@ -190,6 +190,12 @@ export async function processarMensagem(repo, texto, { hoje = hojeISO(), ia } = 
       repo.mudarCategoria(g.id, categoria);
       const chave = chaveDescricao(g.descricao);
       if (chave) repo.aprender(chave, categoria);
+      // comprovante com legenda: "bolo (Maria Souza)" -> aprende também "Maria Souza"
+      const recebedor = g.descricao.match(/\(([^()]+)\)$/)?.[1];
+      if (recebedor) {
+        const chaveRecebedor = chaveDescricao(recebedor);
+        if (chaveRecebedor) repo.aprender(chaveRecebedor, categoria);
+      }
       return `🤖 ✏️ #${g.id} ${g.descricao} agora é ${emoji(categoria)} *${categoria}*. Da próxima vez já coloco lá.`;
     }
 
@@ -300,6 +306,11 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
     .find((g) => g.valor === valor && normalizar(g.descricao).includes(normalizar(recebedor)));
 
   const salvo = repo.inserirGasto({ data, valor, descricao, categoria, origem });
+  // Legenda resolveu a categoria? Ensina o recebedor, para o próximo Pix sem legenda já cair certo
+  if (legendaLimpa && categoria !== 'Outros' && recebedor !== 'Comprovante') {
+    const chaveRecebedor = chaveDescricao(recebedor);
+    if (chaveRecebedor) repo.aprender(chaveRecebedor, categoria);
+  }
   const quando = data === hoje ? '' : ` (${diaMes(data)})`;
   const resposta = [
     '🤖 ✅ Comprovante anotado',
