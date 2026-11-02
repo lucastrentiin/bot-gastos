@@ -5,6 +5,7 @@ import { lerComprovanteGemini } from '../src/comprovante.js';
 import { midiaDaMensagem } from '../src/whatsapp.js';
 import { abrirBanco } from '../src/db.js';
 
+process.env.GEMINI_ESPERA_MS = '0';
 const HOJE = '2026-11-10';
 const arquivo = { buffer: Buffer.from('fake'), mime: 'image/jpeg', legenda: '' };
 const lendo = (r) => async () => r;
