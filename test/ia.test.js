@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { categorizarComIA, provedorIA } from '../src/ia.js';
 
 process.env.GEMINI_ESPERA_MS = '0';
+process.env.GEMINI_DESCOBRIR = '0';
+import { _reiniciarGemini, ordenarModelos } from '../src/gemini.js';
 const fetchOriginal = globalThis.fetch;
 afterEach(() => {
+  _reiniciarGemini();
+  process.env.GEMINI_DESCOBRIR = '0';
   globalThis.fetch = fetchOriginal;
   delete process.env.GEMINI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
@@ -93,4 +97,46 @@ test('Gemini: falha de rede tenta de novo', async () => {
   };
   assert.equal(await categorizarComIA('ração', 50), 'Pets');
   assert.equal(chamadas, 2);
+});
+
+test('ordena modelos: mais novo, estável, flash antes de lite', () => {
+  assert.deepEqual(
+    ordenarModelos(['gemini-2.5-flash', 'gemini-3.8-flash-lite', 'gemini-3.8-flash', 'gemini-3.9-flash-preview', 'gemini-flash-latest']),
+    ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-3.9-flash-preview', 'gemini-2.5-flash', 'gemini-flash-latest'],
+  );
+});
+
+const ok = (cat) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: `{"categoria":"${cat}"}` }] } }] }));
+
+test('descobre os modelos da conta e usa o mais novo', async () => {
+  process.env.GEMINI_API_KEY = 'teste';
+  delete process.env.GEMINI_DESCOBRIR;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    if (url.includes('/models?')) {
+      return new Response(JSON.stringify({ models: [
+        { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash-image', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-pro', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/text-embedding-9', supportedGenerationMethods: ['embedContent'] },
+      ] }));
+    }
+    return ok('Lazer');
+  };
+  assert.equal(await categorizarComIA('paintball', 80), 'Lazer');
+  assert.match(urls[1], /gemini-3\.8-flash:generateContent/);
+});
+
+test('modelo desativado: pula, e segue a sugestão do próprio erro', async () => {
+  process.env.GEMINI_API_KEY = 'teste';
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    if (url.includes('gemini-3.8-flash:')) return ok('Pets');
+    return new Response('{"error":{"code":400,"message":"This model models/gemini-flash-latest is no longer available. Please update your code to use models/gemini-3.8-flash for the latest features."}}', { status: 400 });
+  };
+  assert.equal(await categorizarComIA('ração', 50), 'Pets');
+  assert.match(urls.at(-1), /gemini-3\.8-flash:generateContent/);
 });
