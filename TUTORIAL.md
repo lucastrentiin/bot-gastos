@@ -113,7 +113,12 @@ Você quase nunca vai precisar entrar no servidor. Ele liga sozinho se reiniciar
 → Confira se você está mandando na conversa **com você mesmo**. Em outras conversas ele não responde, de propósito.
 
 **`curl: (22) ... 404`** no Passo 3
-→ O repositório no GitHub está privado ou ainda não existe. Ele precisa ser **público** pra esse comando funcionar.
+→ Pode ser cache do GitHub (acontece logo depois de subir o código; some em ~5 min). Ou instale direto pelo git, que não depende do cache:
+```bash
+cd ~ && git clone https://github.com/lucastrentiin/bot-gastos.git bot-gastos-instalador
+sudo bash bot-gastos-instalador/instalar.sh
+```
+→ Se nem o `git clone` funcionar, o repositório está privado. Ele precisa ser **público**.
 
 **Gasto caiu na categoria errada**
 → Manda `mudar 12 mercado` (12 é o número que aparece na resposta). Ele aprende e da próxima vez acerta.
