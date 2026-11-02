@@ -103,6 +103,8 @@ Você quase nunca vai precisar entrar no servidor. Ele liga sozinho se reiniciar
 | `bot-gastos config` | Mudar a chave da IA ou o número |
 | `bot-gastos backup` | Salvar uma cópia dos seus gastos |
 | `bot-gastos reconectar` | Conectar o WhatsApp de novo |
+| `bot-gastos qr` | Conectar por QR code |
+| `bot-gastos codigo 5511999998888` | Conectar por código com outro número |
 
 ---
 
@@ -119,6 +121,11 @@ cd ~ && git clone https://github.com/lucastrentiin/bot-gastos.git bot-gastos-ins
 sudo bash bot-gastos-instalador/instalar.sh
 ```
 → Se nem o `git clone` funcionar, o repositório está privado. Ele precisa ser **público**.
+
+**"Não foi possível conectar o dispositivo" ao digitar o código**
+→ Confira se você digitou o código **mais recente** que apareceu na tela (ele troca a cada poucos minutos).
+→ Contas antigas do Brasil às vezes estão registradas **sem o 9** na frente. Tente: `bot-gastos codigo 553188887777` (seu número sem o 9)
+→ Ou conecte por QR code, que não depende do número: `bot-gastos qr`
 
 **Gasto caiu na categoria errada**
 → Manda `mudar 12 mercado` (12 é o número que aparece na resposta). Ele aprende e da próxima vez acerta.

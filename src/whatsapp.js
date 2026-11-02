@@ -47,7 +47,9 @@ export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
     auth: state,
     logger,
     version,
-    browser: Browsers.ubuntu('Bot de Gastos'),
+    // Precisa ser um navegador "de verdade": nome inventado faz o WhatsApp recusar o código
+    browser: Browsers.macOS('Chrome'),
+    qrTimeout: 60_000, // cada código/QR vale 1 min (o padrão é 20 s)
     markOnlineOnConnect: false, // não aparece "online" pra ninguém por causa do bot
     syncFullHistory: false,
   });
@@ -75,7 +77,12 @@ export async function iniciarWhatsApp({ aoReceber, aoConectar }) {
         codigoPedido = true;
         try {
           const codigo = await sock.requestPairingCode(numero);
-          console.log(`\n📱 No celular: WhatsApp > Aparelhos conectados > Conectar aparelho > "Conectar com número de telefone"\n   Código: ${codigo}\n`);
+          const bonito = codigo.length === 8 ? `${codigo.slice(0, 4)}-${codigo.slice(4)}` : codigo;
+          console.log(
+            `\n📱 No celular: WhatsApp > Aparelhos conectados > Conectar aparelho > "Conectar com número de telefone"\n` +
+              `   Número usado: +${numero}\n` +
+              `   CÓDIGO: ${bonito}   (vale alguns minutos; se aparecer um código novo aqui, use o novo)\n`,
+          );
         } catch (e) {
           console.error('Não consegui gerar o código de pareamento:', e.message);
         }

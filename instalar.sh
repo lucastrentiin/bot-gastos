@@ -87,8 +87,18 @@ case "${1:-}" in
     DESTINO="${SUDO_USER:+$(getent passwd "$SUDO_USER" | cut -d: -f6)}"; DESTINO="${DESTINO:-$HOME}"
     f="$DESTINO/gastos-$(date +%F).db"
     mv dados/backup.db "$f" && chown "${SUDO_USER:-root}" "$f" && echo "Backup salvo em $f" ;;
-  reconectar) docker compose down && rm -rf dados/sessao-whatsapp && docker compose up -d --force-recreate && echo "Aguarde o código/QR (uns 10 s). Ctrl+C para sair depois de conectar." && docker compose logs -f --tail=all ;;
-  *) echo "Uso: bot-gastos {logs|reiniciar|parar|ligar|atualizar|config|backup|reconectar}" ;;
+  reconectar) docker compose down && rm -rf dados/sessao-whatsapp && docker compose up -d --force-recreate && echo "Aguarde o código/QR (uns 10 s). Ctrl+C para sair depois de conectar." && docker compose logs -f --tail=all --no-log-prefix | grep --line-buffered -v '^{' ;;
+  qr)
+    # conectar por QR code (não depende do número)
+    sed -i 's|^WHATSAPP_NUMERO=.*|WHATSAPP_NUMERO=|' .env
+    exec "$0" reconectar ;;
+  codigo)
+    # conectar por código: bot-gastos codigo 5511999998888
+    n="$(printf '%s' "${*:2}" | tr -cd '0-9')"
+    [ -n "$n" ] || { echo "Uso: bot-gastos codigo 5511999998888"; exit 1; }
+    if grep -q '^WHATSAPP_NUMERO=' .env; then sed -i "s|^WHATSAPP_NUMERO=.*|WHATSAPP_NUMERO=$n|" .env; else echo "WHATSAPP_NUMERO=$n" >> .env; fi
+    exec "$0" reconectar ;;
+  *) echo "Uso: bot-gastos {logs|reiniciar|parar|ligar|atualizar|config|backup|reconectar|qr|codigo NUMERO}" ;;
 esac
 EOF
 sed -i "s|__PASTA__|$PASTA|" /usr/local/bin/bot-gastos
