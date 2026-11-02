@@ -71,6 +71,7 @@ test('erro da IA não derruba o bot', async () => {
   const repo = abrirBanco(':memory:');
   const r = await processarComprovante(repo, arquivo, { hoje: HOJE, ler: async () => { throw new Error('503'); } });
   assert.match(r, /Não consegui ler/);
+  assert.match(r, /Gemini/);
 });
 
 test('sem chave do Gemini explica como configurar', async () => {

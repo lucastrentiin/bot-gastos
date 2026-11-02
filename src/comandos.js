@@ -5,6 +5,7 @@ import { classificar } from './classificar.js';
 import { NOMES_CATEGORIAS, acharCategoria, emoji } from './categorias.js';
 import { relatorioDoMes, resumoPeriodo } from './relatorio.js';
 import { lerComprovanteGemini } from './comprovante.js';
+import { motivoDoErro } from './gemini.js';
 import { brl, normalizar, hojeISO, mesDe, mesAnterior, somarDias, diaMes, NOMES_MESES } from './util.js';
 
 export const AJUDA = `🤖 *Bot de gastos*
@@ -278,7 +279,7 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
     lido = await ler(buffer, mime, legenda.trim());
   } catch (erro) {
     console.error('[comprovante] erro ao ler:', erro.message);
-    return '🤖 ⚠️ Não consegui ler esse comprovante agora (erro na IA). Tenta de novo daqui a pouco, ou escreve o gasto: *mercado 87,50*';
+    return `🤖 ⚠️ Não consegui ler esse comprovante: ${motivoDoErro(erro)}\n\nEnquanto isso, dá pra escrever o gasto: *mercado 87,50*`;
   }
 
   const valor = Math.round(Number(lido?.valor) * 100) / 100;

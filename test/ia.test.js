@@ -50,3 +50,12 @@ test('Gemini: se o modelo não existe (404), tenta o próximo', async () => {
   assert.equal(urls.length, 2);
   assert.notEqual(urls[0], urls[1]);
 });
+
+test('motivo do erro do Gemini em português', async () => {
+  const { motivoDoErro } = await import('../src/gemini.js');
+  const e = (status, corpo) => Object.assign(new Error('x'), { status, corpo });
+  assert.match(motivoDoErro(e(400, '{"error":{"message":"API key not valid. Please pass a valid API key.","reason":"API_KEY_INVALID"}}')), /chave do Gemini é inválida/);
+  assert.match(motivoDoErro(e(429, '{"error":{"status":"RESOURCE_EXHAUSTED"}}')), /limite grátis/);
+  assert.match(motivoDoErro(e(403, '{"error":{"status":"PERMISSION_DENIED"}}')), /permissão/);
+  assert.match(motivoDoErro(e(400, '{"error":{"message":"Invalid value at generation_config"}}')), /Invalid value at generation_config/);
+});
