@@ -28,7 +28,8 @@ export const AJUDA = `🤖 *Bot de gastos*
 
 *Corrigir*
 • *desfazer*: apaga o último
-• *apagar 12*: apaga o gasto #12
+• *apagar 12*: apaga o gasto #12 (ou vários: *apagar 5 10 11*)
+• *apagar antes 01/11*: apaga tudo antes dessa data
 • *mudar 12 lazer*: troca a categoria (e o bot aprende)
 
 *Período*
@@ -212,6 +213,24 @@ export async function processarMensagem(repo, texto, { hoje = hojeISO(), ia } = 
     }
 
     case 'desfazer': case 'apagar': case 'excluir': case 'deletar': {
+      // "apagar antes 01/11": remove tudo antes dessa data
+      const antesDe = args.match(/^antes(?: de| do dia| do)?\s+(\S+)$/);
+      if (antesDe) {
+        const data = lerDataCurta(antesDe[1], hoje);
+        if (!data) return '🤖 Não entendi a data. Ex: *apagar antes 01/11*';
+        const lista = repo.gastosDoPeriodo('0000-01-01', somarDias(data, -1));
+        for (const g of lista) repo.apagarGasto(g.id);
+        const total = lista.reduce((t, g) => t + g.valor, 0);
+        return `🤖 🗑️ Apaguei ${lista.length} ${lista.length === 1 ? 'gasto' : 'gastos'} de antes de ${diaMes(data)} (${brl(total)}).`;
+      }
+      // "apagar 5 10 11": vários de uma vez
+      if (/^#?\d+([\s,]+#?\d+)+$/.test(args)) {
+        const ids = [...new Set(args.match(/\d+/g).map(Number))];
+        const apagados = ids.map((id) => repo.gasto(id)).filter(Boolean);
+        for (const g of apagados) repo.apagarGasto(g.id);
+        const faltou = ids.filter((id) => !apagados.some((g) => g.id === id));
+        return [`🤖 🗑️ Apaguei ${apagados.length}:`, ...apagados.map(linhaGasto), ...(faltou.length ? [`Não achei: ${faltou.map((i) => `#${i}`).join(', ')}`] : [])].join('\n');
+      }
       let alvo;
       if (!args) alvo = repo.ultimoGasto();
       else if (/^#?\d+$/.test(args)) alvo = repo.gasto(Number(args.replace('#', '')));
@@ -354,12 +373,20 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
   }
 
   // limpa e valida cada transação
-  const itens = listaDeTransacoes(lido)
-    .map((t) => {
+  const dataValida = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '') && d <= hoje && d >= somarDias(hoje, -400);
+  const brutas = listaDeTransacoes(lido);
+  let semData = 0;
+  const itens = brutas
+    .map((t, i) => {
       const valor = Math.round(Number(t?.valor) * 100) / 100;
       const recebedor = limparRecebedor(t?.recebedor) || 'Comprovante';
-      let data = hoje;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(t?.data || '') && t.data <= hoje && t.data >= somarDias(hoje, -400)) data = t.data;
+      // sem data legível: num print com várias, usa a do vizinho (a lista vem em ordem de data)
+      let data = dataValida(t?.data) ? t.data : null;
+      if (!data && brutas.length > 1) {
+        const vizinho = [...brutas.slice(0, i).reverse(), ...brutas.slice(i + 1)].find((o) => dataValida(o?.data));
+        if (vizinho) { data = vizinho.data; semData++; }
+      }
+      if (!data) data = hoje;
       const hora = /^\d{2}:\d{2}$/.test(t?.hora || '') ? t.hora : null;
       const categoriaIA = NOMES_CATEGORIAS.includes(t?.categoria) ? t.categoria : null;
       return { valor, recebedor, data, hora, categoriaIA };

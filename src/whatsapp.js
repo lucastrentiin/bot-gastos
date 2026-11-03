@@ -13,6 +13,7 @@ import pino from 'pino';
 import fs from 'node:fs';
 
 const PASTA_SESSAO = process.env.SESSAO_PATH || './dados/sessao-whatsapp';
+let filaDeMensagens = Promise.resolve(); // compartilhada entre reconexões
 
 /** Pega o texto de uma mensagem, seja ela simples, respondida, temporária etc. */
 export function textoDaMensagem(message) {
@@ -129,8 +130,14 @@ export async function iniciarWhatsApp({ aoReceber, aoReceberArquivo, aoConectar 
     }
   });
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return; // ignora histórico antigo que chega ao conectar
+    // Uma mensagem por vez, na ordem: dois prints mandados juntos não podem ser lidos
+    // ao mesmo tempo, senão um não vê o que o outro anotou (e duplica).
+    filaDeMensagens = filaDeMensagens.then(() => processarLote(messages)).catch((e) => console.error(e));
+  });
+
+  async function processarLote(messages) {
     for (const msg of messages) {
       try {
         if (enviadasPeloBot.has(msg.key.id)) continue;
@@ -155,7 +162,7 @@ export async function iniciarWhatsApp({ aoReceber, aoReceberArquivo, aoConectar 
         } catch {}
       }
     }
-  });
+  }
 
   return sock;
 }

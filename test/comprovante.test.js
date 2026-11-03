@@ -253,3 +253,38 @@ test('mostra o que o Gemini ignorou quando não há pagamento', async () => {
   assert.match(r, /Não achei nenhum pagamento/);
   assert.match(r, /Ignorei \(não é gasto pago\): boleto a vencer R\$ 257,25; propaganda/);
 });
+
+test('item sem data num print usa a data do vizinho, não "hoje"', async () => {
+  const repo = abrirBanco(':memory:');
+  await processarComprovante(repo, arquivo, {
+    hoje: '2026-11-03',
+    ler: async () => ({ transacoes: [
+      tx(156.19, 'Municipio de Chapeco', '2026-10-30', '18:31', 'Contas'),
+      tx(156.19, 'Municipio de Chapeco', '', '', 'Contas'),
+    ] }),
+  });
+  assert.deepEqual(repo.ultimosGastos(5).map((g) => g.data), ['2026-10-30', '2026-10-30']);
+});
+
+test('apagar vários e apagar antes de uma data', async () => {
+  const repo = abrirBanco(':memory:');
+  const { processarMensagem } = await import('../src/comandos.js');
+  const msg = (t) => processarMensagem(repo, t, { hoje: '2026-11-03', ia: async () => null });
+  await msg('29/10 a 10\n30/10 b 20\n31/10 c 30\n01/11 d 40\n02/11 e 50');
+  assert.match(await msg('apagar antes 01/11'), /Apaguei 3 gastos de antes de 01\/11 \(R\$\s?60,00\)/);
+  assert.deepEqual(repo.ultimosGastos(9).map((g) => g.descricao), ['e', 'd']);
+  assert.match(await msg('apagar 4 5 99'), /Apaguei 2[\s\S]*Não achei: #99/);
+  assert.equal(repo.ultimosGastos(9).length, 0);
+});
+
+test('cenário do Lucas: 4 prints um depois do outro, início 01/11, sem duplicar', async () => {
+  const repo = abrirBanco(':memory:');
+  const hoje = '2026-11-03';
+  const { processarMensagem } = await import('../src/comandos.js');
+  await processarMensagem(repo, 'inicio 01/11', { hoje });
+  for (const p of [PRINTS[3], PRINTS[1], PRINTS[0], PRINTS[2]]) {
+    await processarComprovante(repo, arquivo, { hoje, ler: async () => p });
+  }
+  const todos = repo.ultimosGastos(50).map((g) => `${g.data} ${g.descricao} ${g.valor}`).sort();
+  assert.deepEqual(todos, ['2026-11-01 99food 23.64', '2026-11-01 Milena 115']);
+});
