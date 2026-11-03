@@ -18,6 +18,7 @@ perguntar() {
 }
 
 [ "$(id -u)" -eq 0 ] || erro "Rode como root: curl -fsSL ... | sudo bash"
+command -v apt-get >/dev/null 2>&1 || erro "Este instalador é para Ubuntu/Debian. Crie o servidor com a imagem Ubuntu 24.04."
 
 # 1. Docker
 if ! command -v docker >/dev/null 2>&1; then
@@ -26,6 +27,17 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
 docker compose version >/dev/null 2>&1 || erro "Docker Compose não encontrado. Instale o plugin docker-compose-plugin."
+
+# 1b. Máquina com pouca memória (ex.: Oracle E2.1.Micro, 1 GB): cria 2 GB de swap
+#     senão a montagem do bot (compilação do SQLite) pode travar por falta de RAM
+MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+if [ "${MEM_MB:-0}" -lt 1800 ] && [ "$(awk 'NR>1' /proc/swaps | wc -l)" -eq 0 ]; then
+  verde "==> Pouca memória (${MEM_MB} MB): criando 2 GB de swap..."
+  if fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; then
+    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  fi
+fi
 
 # 2. Código
 command -v git >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq git >/dev/null; } || true
