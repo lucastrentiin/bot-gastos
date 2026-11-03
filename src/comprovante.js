@@ -18,6 +18,9 @@ compra aprovada no cartão, Pix enviado, transferência enviada, boleto pago, d�
 NÃO liste: Pix ou dinheiro RECEBIDO, boleto novo ou "a vencer" (ainda não foi pago), lembretes, avisos,
 propaganda, saldo, limite, fatura apenas "fechada", estornos, compras recusadas.
 
+Itens CORTADOS no topo ou no rodapé do print também contam: se dá para ler o valor e para quem foi
+(ex.: "Você enviou R$ 257,25 para FULANO", "Compra aprovada de R$ 23,64 em LOJA"), liste, mesmo sem o título.
+
 Se a mesma notificação aparecer repetida na lista (mesmo valor, mesmo recebedor, mesmo horário),
 liste cada ocorrência: podem ser pagamentos separados.
 
@@ -29,6 +32,9 @@ Para cada transação:
 - hora: HH:MM do pagamento ("" se não aparecer)
 - categoria: uma de ${NOMES_CATEGORIAS.join(', ')}. Imposto, taxa e guia do governo = "Contas".
   Pix para pessoa física sem pista do que foi comprado = "Outros".
+
+Em "ignorados", liste bem curto o que você viu e NÃO contou, com o motivo
+(ex.: "boleto a vencer R$ 257,25", "propaganda", "Pix recebido R$ 50"). Lista vazia se não houver.
 
 Se não houver nenhum pagamento, devolva "transacoes": [].${
     legenda ? `\n\nO usuário escreveu junto: "${legenda}" (use para escolher a categoria).` : ''
@@ -72,11 +78,14 @@ export async function lerComprovanteGemini(arquivo, mime, legenda = '', hoje = h
               required: ['valor', 'recebedor', 'data', 'hora', 'categoria'],
             },
           },
+          ignorados: { type: 'ARRAY', items: { type: 'STRING' } },
         },
-        required: ['transacoes'],
+        required: ['transacoes', 'ignorados'],
       },
     },
   });
   if (!texto) throw new Error('Gemini não devolveu resposta');
-  return JSON.parse(texto);
+  const lido = JSON.parse(texto);
+  console.log(`[comprovante] Gemini leu: ${JSON.stringify(lido).slice(0, 1500)}`);
+  return lido;
 }

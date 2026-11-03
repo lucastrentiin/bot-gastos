@@ -216,3 +216,40 @@ test('prompt manda a data de hoje para o Gemini descobrir o ano', async () => {
     globalThis.fetch = original;
   }
 });
+
+test('"faça só a partir do dia 01/11": define data de início e ignora o que é antes', async () => {
+  const repo = abrirBanco(':memory:');
+  const hoje = '2026-11-03';
+  const { processarMensagem } = await import('../src/comandos.js');
+  const msg = (t) => processarMensagem(repo, t, { hoje, ia: async () => null });
+
+  assert.match(await msg('cuide para não repetir. e faça só a partir do dia 01/11'), /só anoto gastos a partir de \*01\/11\/2026\*/);
+  assert.match(await msg('inicio'), /a partir de 01\/11\/2026/);
+
+  // print com itens de outubro e novembro
+  const r = await processarComprovante(repo, arquivo, { hoje, ler: async () => PRINTS[0] });
+  assert.match(r, /2 gastos anotados/); // só 99Food 01/11 e Milena 01/11
+  assert.match(r, /Ignorei 3 de antes de 01\/11/);
+  assert.equal(repo.ultimosGastos(50).length, 2);
+
+  // print só com coisas de antes
+  const r2 = await processarComprovante(repo, arquivo, { hoje, ler: async () => PRINTS[3] });
+  assert.match(r2, /Nada para anotar.*Ignorei 2 de antes/s);
+
+  // texto também respeita
+  assert.match(await msg('31/10 mercado 50'), /Ignorei: esse gasto é de antes de 01\/11/);
+  assert.match(await msg('31/10 mercado 50\n02/11 uber 20'), /Anotado[\s\S]*uber[\s\S]*Ignorei 1 de antes/);
+
+  assert.match(await msg('inicio limpar'), /removida/);
+  assert.match(await msg('31/10 mercado 50'), /Anotado/);
+});
+
+test('mostra o que o Gemini ignorou quando não há pagamento', async () => {
+  const repo = abrirBanco(':memory:');
+  const r = await processarComprovante(repo, arquivo, {
+    hoje: HOJE,
+    ler: async () => ({ transacoes: [], ignorados: ['boleto a vencer R$ 257,25', 'propaganda'] }),
+  });
+  assert.match(r, /Não achei nenhum pagamento/);
+  assert.match(r, /Ignorei \(não é gasto pago\): boleto a vencer R\$ 257,25; propaganda/);
+});

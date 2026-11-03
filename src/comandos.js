@@ -31,6 +31,9 @@ export const AJUDA = `🤖 *Bot de gastos*
 • *apagar 12*: apaga o gasto #12
 • *mudar 12 lazer*: troca a categoria (e o bot aprende)
 
+*Período*
+• *inicio 01/11*: só anota gastos a partir desse dia
+
 *Planejar*
 • *orcamento alimentacao 800*: limite mensal (avisa em 80% e 100%)
 • *orcamento*: ver limites
@@ -88,9 +91,42 @@ function avisoOrcamento(repo, gasto, hoje) {
   return null;
 }
 
+
+/** "01/11", "1/11/2026", "2026-11-01" -> "2026-11-01" (ano atual, ou o passado se cair no futuro) */
+function lerDataCurta(texto, hoje) {
+  const t = texto.trim();
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return t;
+  m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (!m) return null;
+  let ano = m[3] ? Number(m[3]) : Number(hoje.slice(0, 4));
+  if (ano < 100) ano += 2000;
+  const iso = `${ano}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  if (Number.isNaN(new Date(`${iso}T12:00:00Z`).getTime())) return null;
+  if (!m[3] && iso > hoje) return `${ano - 1}${iso.slice(4)}`;
+  return iso;
+}
+
+/** Data a partir da qual o bot anota gastos (comando "inicio 01/11"), ou null. */
+function dataInicio(repo) {
+  return repo.config('data_inicio') || null;
+}
+
+function definirInicio(repo, data) {
+  repo.gravarConfig('data_inicio', data);
+  return `🤖 📅 Combinado: só anoto gastos a partir de *${diaMes(data)}/${data.slice(0, 4)}*. O que for de antes (em print ou texto) eu ignoro.\nPara desfazer: *inicio limpar*`;
+}
+
 async function registrarGastos(repo, texto, hoje, ia) {
-  const { gastos, linhasRuins } = lerGastos(texto, hoje);
-  if (gastos.length === 0) return null;
+  const lidos = lerGastos(texto, hoje);
+  const { linhasRuins } = lidos;
+  if (lidos.gastos.length === 0) return null;
+  const inicio = dataInicio(repo);
+  const antes = inicio ? lidos.gastos.filter((g) => g.data < inicio) : [];
+  const gastos = inicio ? lidos.gastos.filter((g) => g.data >= inicio) : lidos.gastos;
+  if (gastos.length === 0) {
+    return `🤖 Ignorei: ${antes.length === 1 ? 'esse gasto é' : `esses ${antes.length} gastos são`} de antes de ${diaMes(inicio)} (sua data de início). Para mudar: *inicio 01/10* ou *inicio limpar*.`;
+  }
 
   const linhas = [];
   const avisos = [];
@@ -109,6 +145,9 @@ async function registrarGastos(repo, texto, hoje, ia) {
   const resposta = [`🤖 ✅ ${gastos.length === 1 ? 'Anotado' : `${gastos.length} gastos anotados`}`, ...linhas];
   if (linhasRuins.length) {
     resposta.push('', `Não entendi: ${linhasRuins.map((l) => `"${l}"`).join(', ')}`);
+  }
+  if (antes.length) {
+    resposta.push('', `Ignorei ${antes.length} de antes de ${diaMes(inicio)} (sua data de início).`);
   }
   if (algumOutros) {
     resposta.push('', `Não reconheci a categoria de "${algumOutros.descricao}". Para corrigir: *mudar ${algumOutros.id} lazer* (ou outra categoria).`);
@@ -233,6 +272,22 @@ export async function processarMensagem(repo, texto, { hoje = hojeISO(), ia } = 
       return `🤖 🎯 Orçamento de ${emoji(categoria)} *${categoria}*: ${brl(limite)} por mês. Aviso quando chegar em 80% e quando passar.`;
     }
 
+    case 'inicio': case 'comecar': case 'começar': {
+      if (!args) {
+        const ini = dataInicio(repo);
+        return ini
+          ? `🤖 📅 Anoto gastos a partir de ${diaMes(ini)}/${ini.slice(0, 4)}. Para mudar: *inicio 01/10*. Para tirar: *inicio limpar*`
+          : '🤖 Sem data de início: anoto gastos de qualquer data. Para começar de um dia: *inicio 01/11*';
+      }
+      if (/^(limpar|remover|tirar|apagar)$/.test(args)) {
+        repo.gravarConfig('data_inicio', '');
+        return '🤖 Data de início removida: anoto gastos de qualquer data.';
+      }
+      const data = lerDataCurta(args.replace(/^(em|de|do|dia)\s+/, ''), hoje);
+      if (!data) return '🤖 Não entendi a data. Ex: *inicio 01/11*';
+      return definirInicio(repo, data);
+    }
+
     case 'renda': case 'salario': {
       if (!args) {
         const renda = repo.config('renda');
@@ -246,6 +301,13 @@ export async function processarMensagem(repo, texto, { hoje = hojeISO(), ia } = 
 
     default:
       break;
+  }
+
+  // frase livre: "faça só a partir do dia 01/11", "começar a partir de 1/11"
+  const aPartir = t.match(/\ba partir (?:do dia |de |do |da |dia )?(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
+  if (aPartir) {
+    const data = lerDataCurta(aPartir[1], hoje);
+    if (data) return definirInicio(repo, data);
   }
 
   const registrado = await registrarGastos(repo, original, hoje, ia);
@@ -304,8 +366,19 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
     })
     .filter((t) => t.valor > 0);
 
+  const ignoradosIA = (Array.isArray(lido?.ignorados) ? lido.ignorados : []).filter(Boolean).slice(0, 6);
+  const notaIgnorados = ignoradosIA.length ? `\nIgnorei (não é gasto pago): ${ignoradosIA.join('; ')}.` : '';
+
+  const inicio = dataInicio(repo);
+  const antesDoInicio = inicio ? itens.filter((t) => t.data < inicio) : [];
+  if (inicio) itens.splice(0, itens.length, ...itens.filter((t) => t.data >= inicio));
+  const notaInicio = antesDoInicio.length
+    ? `\nIgnorei ${antesDoInicio.length} de antes de ${diaMes(inicio)} (sua data de início).`
+    : '';
+
   if (itens.length === 0) {
-    return '🤖 Não achei nenhum pagamento nesse arquivo. Se for um gasto, escreve: *descrição valor*, ex: *mercado 87,50*';
+    if (antesDoInicio.length) return `🤖 Nada para anotar nesse print.${notaInicio}${notaIgnorados}`;
+    return `🤖 Não achei nenhum pagamento nesse arquivo.${notaIgnorados}\nSe tiver um gasto aí, escreve: *descrição valor*, ex: *mercado 87,50*`;
   }
 
   // Quantos de cada já estão no banco? (foto antes de inserir, para não contar os desta mesma imagem)
@@ -353,7 +426,7 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
   if (salvos.length === 0) {
     resposta.push(`🤖 Nada novo nesse ${itens.length === 1 ? 'comprovante' : 'print'}: ${itens.length === 1 ? 'esse gasto já estava anotado' : `os ${itens.length} gastos já estavam anotados`}.`);
     resposta.push('Se era outra compra igual, escreve ela: *descrição valor*.');
-    return resposta.join('\n');
+    return resposta.join('\n') + notaInicio;
   }
   resposta.push(salvos.length === 1 && itens.length === 1 ? '🤖 ✅ Comprovante anotado' : `🤖 ✅ ${salvos.length} ${salvos.length === 1 ? 'gasto anotado' : 'gastos anotados'} do print`);
   resposta.push(...salvos.map(linha));
@@ -361,6 +434,7 @@ export async function processarComprovante(repo, { buffer, mime, legenda = '' },
   if (pulados.length) {
     resposta.push('', `↩️ ${pulados.length} já ${pulados.length === 1 ? 'estava anotado' : 'estavam anotados'} (apareceu em outro print), não dupliquei.`);
   }
+  if (notaInicio) resposta.push(notaInicio.trim());
   const semCategoria = salvos.filter((g) => g.origem === 'padrao');
   if (semCategoria.length) {
     const lista = semCategoria.map((g) => `#${g.id} ${g.descricao}`).join(', ');
